@@ -23,6 +23,7 @@
 // ---- END VEXCODE CONFIGURED DEVICES ----
 
 #include "vex.h"
+#include <cmath>
 
 using namespace vex;
 
@@ -38,40 +39,29 @@ competition Competition;
 
 //reset sensors so they are more accurate
 void reset_rotation() {
-  FR.resetRotation();
-  BR.resetRotation();
-  FL.resetRotation();
-  BL.resetRotation();
-  Tilter.resetRotation();
-  Hook.resetRotation();
-  Lift.resetRotation();
-  Lift2.resetRotation();
-}
+  FR.resetRotation(); BR.resetRotation(); FL.resetRotation(); BL.resetRotation(); Claw.close(); LeftLift.resetRotation(); RightLift.resetRotation(); }
 
 void set_position(int pos){
   FL.setPosition(pos, degrees);
   FR.setPosition(pos, degrees);
   BL.setPosition(pos, degrees);
   BR.setPosition(pos, degrees);
-  IS.setHeading(pos, degrees);
+  IMU.setHeading(pos, degrees);
 }
 
 
 //brakes drive in either hold or coast
-void brake_drive() {
-  FR.setStopping(hold);
-  BR.setStopping(hold);
-  FL.setStopping(hold);
-  BL.setStopping(hold);
-}
+void set_hold() {
+  FR.setStopping(hold); BR.setStopping(hold); FL.setStopping(hold); BL.setStopping(hold); }
 
-void coast_drive() {
-  FR.setStopping(coast);
-  BR.setStopping(coast);
-  FL.setStopping(coast);
-  BL.setStopping(coast);
-}
+void set_coast() {
+  FR.setStopping(coast); BR.setStopping(coast); FL.setStopping(coast); BL.setStopping(coast); }
 
+void coast_drive(){
+FL.stop(coast); FR.stop(coast); BL.stop(coast); BR.stop(coast); }
+
+void brake_drive(){
+FL.stop(hold); FR.stop(hold); BL.stop(hold); BR.stop(hold); }
 
 //These Autonomous Global Statements use the internal motor's encoders to run
 //Uses the rotateFor command, which makes the robot move for a specific amount of deg or rev
@@ -81,11 +71,14 @@ void coast_drive() {
 
 
 
-///////////////////////////////////////////////////////////////////////////////////////////////////////
-//PID for Turning Movement
-///////////////////////////////////////////////////
+/////////////////////////////////////
+//    PID for Turning Movement    //
+///////////////////////////////////
 
-void turn_drive(int turnTarget, int speed){
+//p-loop for the inertial sensor
+//sum two values
+void turn_drive(int turnTarget, int speed, int turnType){
+
 set_position(0); // ^ zeros the Motors and the Inertial Sensor
 
 double kp = 0; //speed control (error) 
@@ -100,6 +93,7 @@ int proportion; //error
 int integral = 0.0; //total error
 int derivative; //error minus previous error (speed)
 
+int curDeg = IMU.rotation(degrees);
 int volts = (speed*.12); //converts the set speed above into an interger to volts (100 *.12 = 12)
   //voltageUnits::volts goes from 0-12 volts, 12 being the maximum voltage
 int rawPow; //power calculated from summing the PID and their corresponding constants
@@ -107,14 +101,20 @@ int leftPower; //rawPow added with the difference between FL and FR
 int rightPower; //rawPow subtracted with the difference between FL and FR
 int sign; //interger that can only be 1 or -1 (used for the speed cap)
 
-
+int DELAY_TIME = 10;
+int velTimer;
+int errorTimer;
+int Lvel = FL.velocity(pct);
+int Rvel = FR.velocity(pct);
 
 while(1){ //while loop, this will continue to run until the specific parameters are met to break the loop
-
+/*
+if (IMU.heading(degrees)>=180){
+  curDeg = IMU.heading(degrees) - 360;
+}
+*/
 //PID Calculations using the inertial sensor
-error = turnTarget - IS.heading(degrees); //might have to be (actual - target) if it continues to turn after desired target
-prevError = error;
-
+error = turnTarget - curDeg; //might have to be (actual - target) if it continues to turn after desired target
 
 
   proportion = error;
@@ -123,37 +123,76 @@ prevError = error;
     rawPow = proportion *kp + integral *ki + derivative *kd;
 
 
-    leftPower = rawPow;
-    rightPower = rawPow;
 
 
   sign = error/abs(int(error)); //calulates the sign of error (1 or -1)
 
-if(leftPower>=volts){ // if the left power is greater than the desired speed, the left power equals the desired speed in volts times the sign of the error
-  leftPower = volts*sign;}
-
-if(rightPower>=volts){ // if the right power is greater than the desired speed, the right power equals the desired speed in volts times the sign of the error
-  rightPower = volts*sign;}
-
+if(abs(rawPow)>=abs(volts)){ // if the left power is greater than the desired speed, the left power equals the desired speed in volts times the sign of the error
+  rawPow = volts*sign; // power left side = speed times sign of the error (direction)
+}
+ 
 
 
-if (error<4){ // if the error is less than 4 degrees then break out of the while loop
-  break;}
+
+
+if (turnType == 0){ //turn
+    leftPower = -rawPow;
+    rightPower = rawPow;
+}
+
+if (turnType == 1){ //left swing
+    leftPower = 0;
+    rightPower = rawPow;
+}
+
+if (turnType == 2){ //right swing
+    leftPower = rawPow;
+    rightPower = 0;
+}
+
+
+if(abs(error) <= 4){ //breaks the loop if the error is less than 4 for more than 60 msec
+    errorTimer +=DELAY_TIME;
+  if (errorTimer > 60){
+    errorTimer = 0;
+    break;
+  }
+}
+  else{
+    errorTimer = 0;
+  }
+
+
+if(Lvel == 0 && Rvel == 0){ //breaks the loop if the velocity is 0 for more than 200 msec
+    velTimer += DELAY_TIME;
+  if (velTimer > 200) {
+    velTimer = 0;
+    break;
+  }
+}
+else {
+  velTimer = 0;
+}
+
 
 
 
 //sets motors to move with their corresponding powers
-FL.spin(reverse, leftPower, vex::voltageUnits::volt);
+FL.spin(fwd, leftPower, vex::voltageUnits::volt);
 FR.spin(fwd, rightPower, vex::voltageUnits::volt);
-BL.spin(reverse, leftPower, vex::voltageUnits::volt);
+BL.spin(fwd, leftPower, vex::voltageUnits::volt);
 BR.spin(fwd, rightPower, vex::voltageUnits::volt);
-  wait(20,msec);} // waits 20msecs before repeating the while loop
+
+  prevError = error; 
+    wait(DELAY_TIME,msec); // waits 10msec before repeating the while loop
+} 
 
 
 
 //coasts the motors when while loop broken
-FL.stop(coast); FR.stop(coast); BL.stop(coast); BR.stop(coast);
-  wait(20,msec);} //waits 20msec before going to the next line of code
+brake_drive();
+  wait(20,msec); //waits 20msec before going to the next line of code
+}
 
 
 
@@ -161,100 +200,102 @@ FL.stop(coast); FR.stop(coast); BL.stop(coast); BR.stop(coast);
 
 
 
+///////////////////////////////
+//    PD Linear Movement    //
+/////////////////////////////
 
+void move_drive(int target, int speed){
 
-//////////////////////
-//PID Linear Movement
-/////////////////////////////////////////
+  FL.setPosition(0, degrees);
+  FR.setPosition(0, degrees);
+  BL.setPosition(0, degrees);
+  BR.setPosition(0, degrees);// ^ zeros the Motors
 
-
-void move_drive(int target, int speed, int timeout){
-Brain.Timer.reset();
-set_position(0);// ^ zeros the Motors
-
-double kp = 0; //speed control (error) 
-double ki = 0; //increase precision with error left over from kp 
+double kp = 0.5; //speed control (error) 
 double kd = 0; //makes sure that the speed is not too fast or too slow
-// ^ constants (increase the kp until error is small, then increase kd until overshoot is minimal, increase ki until error is gone)
+// ^ constants
+
 
 int error; //error (target - average position)
 int prevError; //the error from the previous loop
 
 int proportion; //error
-int integral = 0.0; //total error
-int derivative; //error minus previous error (speed)
+int derivative; //error minus previous error (speed)  
 
 int rawPow; //power calculated from summing the PID and their corresponding constants
-int avgPos = ((FL.position(degrees) + FR.position(degrees))/2); //average position between FL and FR
+int curDeg = ((FL.position(degrees) + FR.position(degrees))/2); //average position between FL and FR
+double curPos = curDeg * 0.047269;
 int volts = (speed*.12); //converts the speed into voltage (0-12)
 
 int sign; //sign (1 or -1) error/abs(error)
 
-int currentTime; // current time
-int prevTime; // time from the previous loop
-int deltaTime; // current time minus the previous time
-// ^ uses time to make sure that the PID controller isnt running for longer than it should
-
+int DELAY_TIME = 10;
+int velTimer;
+int errorTimer;
+int Lvel = FL.velocity(pct);
+int Rvel = FR.velocity(pct);
 
 
 while(1){
-currentTime = Brain.Timer.value();
-prevTime = currentTime;
-deltaTime = (currentTime - prevTime);
 
+error = target - curDeg;
 
-
-error = target - avgPos;
-prevError = error;
-
-
-
-//PID calculations using the average position of the motors
+//PD calculations using the average position of the motors
   proportion = error;
-  integral += error*(deltaTime);
-  derivative = (error - prevError)/(deltaTime);
-    rawPow = proportion *kp + integral *ki + derivative *kd;
+  derivative = (error - prevError);
+    rawPow = proportion *kp + derivative *kd;
+printf("%i", rawPow);
 
 
-
+/*
       sign = error / abs(int(error)); //calulates the sign of error (1 or -1)
 
-if (rawPow>=volts){ // if the rawPower is greater than the desired speed, the rawPower equals the desired speed in volts times the sign of the error
+if (abs(rawPow) >= abs(volts)){ // if the rawPower is greater than the desired speed, the rawPower equals the desired speed in volts times the sign of the error
   rawPow = volts*sign;
 }
+*/
+
+/*
+if(abs(error) <= 4){
+    errorTimer +=DELAY_TIME;
+  if (errorTimer > 60){
+    errorTimer = 0;
+    break;
+  }
+}
+  else{
+    errorTimer = 0;
+  }
 
 
+if(Lvel == 0 && Rvel == 0){ //breaks the loop if the error is less than 4
+    velTimer += DELAY_TIME;
+  if (velTimer > 200) {
+    velTimer = 0;
+    break;
+  }
+}
+else {
+  velTimer = 0;
+}
 
-if(Brain.Timer.value()>=timeout){ //breaks the loop if the timer value is greater or equal to the time set above
-  break;}
-
-if(error<4){ //breaks the loop if the error is less than 4
-  break;}
-
-
+*/
 
 //sets motors to move with the rawPower calculated from the PID controller
 FL.spin(fwd, rawPow, vex::voltageUnits::volt);
 FR.spin(fwd, rawPow, vex::voltageUnits::volt);
 BL.spin(fwd, rawPow, vex::voltageUnits::volt);
 BR.spin(fwd, rawPow, vex::voltageUnits::volt);
-    wait(20,msec);} // waits 20msecs before repeating the while loop
 
 
+  prevError = error;
+    wait(DELAY_TIME,msec); // waits 10 msec before repeating the while loop
+} 
 
-Brain.Screen.print(currentTime); //used to figure out what to set the timeout value
-FL.stop(coast); FR.stop(coast); BL.stop(coast); BR.stop(coast);
-    wait(20,msec);} //waits 20msec before going to the next line of code
 
-/*
-
-    //constant tuning tips from vexforum
-Increase your gains and set turnKi and turnKd to 0 –– just a heads up.
-I probably should’ve mentioned you should always start with a high-value forkp and work down from there.
-Make sure your motors are receiving power to and the function is actually executing.
-Another tuning tip, keep lowering kp until the robot barely reaches the target.
-
-*/
+brake_drive();
+  wait(20,msec);  //waits 20msec before going to the next line of code
+}
 
 
 
@@ -268,14 +309,73 @@ Another tuning tip, keep lowering kp until the robot barely reaches the target.
 
 
 
+void move_drive_test(int pos, int speed){
+  FR.rotateFor(pos, rotationUnits::deg, speed, velocityUnits::pct, false);
+  FL.rotateFor(pos, rotationUnits::deg, speed, velocityUnits::pct, false);
+  BR.rotateFor(pos, rotationUnits::deg, speed, velocityUnits::pct, false);
+  BL.rotateFor(pos, rotationUnits::deg, speed, velocityUnits::pct, true);
+
+}
+
+
+
+/*    constant tuning tips from Jess
+set all constant values to zero. Increase the Kp value until there is steady oscillation
+then increase the Kd value until the oscillation is gone
+repeat until increasing the Kd value does stop the oscillation. Then go back to the last Kd and Kp value with no oscillation
+then (for turns) increase the Ki so the final error is gone. 
+Increase your gains and set turnKi and turnKd to 0 –– just a heads up.    */
 
 
 
 
 
 
+///////////////////////////////////////////
+//    Proportion - Loop for the Lift    //
+/////////////////////////////////////////
+
+void move_lift(int target, int speed){
+
+double kp = 0.0;
+
+int error;
+int proportion;
+int rawPow;
+int volts = (speed * 0.12);
+int DELAY_TIME = 10;
+int errorTimer;
+int sign;
+
+while(1){
+  error = target - Pot.value(degrees);
+
+  proportion = error;
+
+  rawPow = proportion * kp;
 
 
+  sign = error / abs(int(error));
+
+  if (abs(rawPow) >= abs(volts)){
+    rawPow = volts*sign;
+  }
+
+  if(abs(error) < 4){
+    errorTimer += DELAY_TIME;
+
+    if (errorTimer > 60){
+      errorTimer = 0;
+      break;
+    } 
+  }
+
+LeftLift.spin(fwd, rawPow, vex::voltageUnits::volt);
+RightLift.spin(fwd, rawPow, vex::voltageUnits::volt);
+}
+
+wait(DELAY_TIME,msec);
+}
 
 
 
@@ -313,12 +413,9 @@ void pre_auton(void) {
 /*---------------------------------------------------------------------------*/
 
 void autonomous(void) {
-  // ..........................................................................
-  // Insert autonomous user code here.
-  // ..........................................................................
 reset_rotation();
 
-
+move_drive(508, 100);
 
 }
 
@@ -337,7 +434,7 @@ void usercontrol(void) {
 
   // User control code here, inside the loop
   while (1) {
-
+    
 }
 
 
