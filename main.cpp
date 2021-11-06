@@ -199,7 +199,6 @@ brake_drive();
 
 
 
-
 ///////////////////////////////
 //    PD Linear Movement    //
 /////////////////////////////
@@ -211,20 +210,31 @@ void move_drive(int target, int speed){
   BL.setPosition(0, degrees);
   BR.setPosition(0, degrees);// ^ zeros the Motors
 
-double kp = 0.5; //speed control (error) 
-double kd = 0; //makes sure that the speed is not too fast or too slow
+double kp = 0.07; //speed control (error) 0.185
+double kd = 0.0585395; //makes sure that the speed is not too fast or too slow 0.17
+double turnKp = 0.025;
+double turnKd = 0.011875;
 // ^ constants
 
 
 int error; //error (target - average position)
 int prevError; //the error from the previous loop
+int turnError;
+int turnPrevError;
 
 int proportion; //error
-int derivative; //error minus previous error (speed)  
+int derivative; //error minus previous error (speed)
+int turnProportion;
+int turnDerivative;
 
 int rawPow; //power calculated from summing the PID and their corresponding constants
-int curDeg = ((FL.position(degrees) + FR.position(degrees))/2); //average position between FL and FR
-double curPos = curDeg * 0.047269;
+int curPos;
+int turnRawPow;
+int turnDiff;
+int leftPow;
+int rightPow;
+
+//double curPos = curDeg * 0.047269;
 int volts = (speed*.12); //converts the speed into voltage (0-12)
 
 int sign; //sign (1 or -1) error/abs(error)
@@ -238,13 +248,26 @@ int Rvel = FR.velocity(pct);
 
 while(1){
 
-error = target - curDeg;
+curPos = ((FL.position(degrees) + FR.position(degrees))/2); //average position between FL and FR
+turnDiff = (FL.position(degrees) - FR.position(degrees));
+
+error = target - curPos;
 
 //PD calculations using the average position of the motors
   proportion = error;
   derivative = (error - prevError);
     rawPow = proportion *kp + derivative *kd;
 printf("%i", rawPow);
+
+
+turnError = 0 - turnDiff;
+
+  turnProportion = turnError;
+  turnDerivative = (turnError - turnPrevError);
+    turnRawPow = turnProportion *turnKp + turnDerivative *turnKd;
+
+leftPow = rawPow + turnRawPow;
+rightPow = rawPow - turnRawPow;
 
 
 /*
@@ -278,17 +301,18 @@ if(Lvel == 0 && Rvel == 0){ //breaks the loop if the error is less than 4
 else {
   velTimer = 0;
 }
-
 */
 
+
 //sets motors to move with the rawPower calculated from the PID controller
-FL.spin(fwd, rawPow, vex::voltageUnits::volt);
-FR.spin(fwd, rawPow, vex::voltageUnits::volt);
-BL.spin(fwd, rawPow, vex::voltageUnits::volt);
-BR.spin(fwd, rawPow, vex::voltageUnits::volt);
+FL.spin(fwd, leftPow, vex::voltageUnits::volt);
+FR.spin(fwd, rightPow, vex::voltageUnits::volt);
+BL.spin(fwd, leftPow, vex::voltageUnits::volt);
+BR.spin(fwd, rightPow, vex::voltageUnits::volt);
 
 
   prevError = error;
+  turnPrevError = turnError;
     wait(DELAY_TIME,msec); // waits 10 msec before repeating the while loop
 } 
 
@@ -296,6 +320,7 @@ BR.spin(fwd, rawPow, vex::voltageUnits::volt);
 brake_drive();
   wait(20,msec);  //waits 20msec before going to the next line of code
 }
+
 
 
 
