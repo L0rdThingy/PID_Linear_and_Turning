@@ -185,7 +185,7 @@ int Rvel = FR.velocity(pct);
 while(1){ //while loop, this will continue to run until the specific parameters are met to break the loop
 
 //PID Calculations using the inertial sensor
-error = turnTarget - IMU.rotation(degrees); //might have to be (actual - target) if it continues to turn after desired target
+error = turnTarget - IMU.heading(degrees); //might have to be (actual - target) if it continues to turn after desired target
 
 
   proportion = error;
